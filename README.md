@@ -6,7 +6,7 @@ lua-codec工具包
 
 编译说明
 -------------------------------------------------------
-我是基于LuaJIT-2.0.3和openssl 1.0.0编译的，可以根据你的环境改codec.c的include以及Makefile；
+基于LuaJIT-2.0.3和openssl 1.0.0编译的，可以根据你的环境改codec.c的include以及Makefile；
 
 	cd src/
 	make

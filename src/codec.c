@@ -1,13 +1,17 @@
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-#include <luajit-2.0/lua.h>
-#include <luajit-2.0/lauxlib.h>
-#include <luajit-2.0/lualib.h>
+#include <luajit-2.1/lua.h>
+#include <luajit-2.1/lauxlib.h>
+#include <luajit-2.1/lualib.h>
 #include <openssl/bio.h>
 #include <openssl/rsa.h>
 #include <openssl/pem.h>
 #include <openssl/evp.h>
 #include <openssl/md5.h>
+#include <openssl/sha.h>
 #include <openssl/hmac.h>
+#include <openssl/blowfish.h>
 
 /**
  * BASE64编码
@@ -443,11 +447,188 @@ static int codec_rsa_private_decrypt(lua_State *L)
   return 1;
 }
 
+
+/**
+ * SHA1编码
+ *
+ * LUA示例:
+ * local codec = require('codec')
+ * local src = [[...]]
+ * local result = codec.sha1_encode(src)
+ */
+typedef unsigned char uchar;
+static int codec_sha1_encode(lua_State *L)
+{
+  size_t len;
+  const char *cs = luaL_checklstring(L, 1, &len);
+  SHA_CTX c;
+  uchar *dest = (uchar *)malloc((SHA_DIGEST_LENGTH + 1)*sizeof(uchar));
+  memset(dest, 0, SHA_DIGEST_LENGTH + 1);
+  if(!SHA1_Init(&c))
+  {
+     free(dest);
+     return 0;
+  }
+  SHA1_Update(&c, cs, strlen(cs));
+  SHA1_Final(dest,&c);
+  OPENSSL_cleanse(&c,sizeof(c));
+  
+  char dst[SHA_DIGEST_LENGTH * 2];
+  
+  int i;
+  for(i = 0; i < SHA_DIGEST_LENGTH; i++)
+    sprintf(dst + i * 2, "%02x", dest[i]);
+  
+  lua_pushlstring(L, dst, SHA_DIGEST_LENGTH * 2);
+  return 1;
+}
+
+
+/**
+ * SHA256编码
+ *
+ * LUA示例:
+ * local codec = require('codec')
+ * local src = [[...]]
+ * local result = codec.sha256_encode(src)
+ */
+static int codec_sha256_encode(lua_State *L)
+{
+  size_t len;
+  const char *cs = luaL_checklstring(L, 1, &len);
+  SHA256_CTX c;
+  uchar *dest = (uchar *)malloc((SHA256_DIGEST_LENGTH + 1)*sizeof(uchar));
+  memset(dest, 0, SHA256_DIGEST_LENGTH + 1);
+  if(!SHA256_Init(&c))
+  {
+     free(dest);
+     return 0;
+  }
+  SHA256_Update(&c, cs, strlen(cs));
+  SHA256_Final(dest,&c);
+  OPENSSL_cleanse(&c,sizeof(c));
+  
+  char dst[SHA256_DIGEST_LENGTH * 2 + 1];    // 没搞明白，干嘛一定要多一位啊？？？？？？？？？
+  int i;
+  for(i = 0; i < SHA256_DIGEST_LENGTH; i++){
+    sprintf(dst + i * 2, "%02x", dest[i]);
+  }   
+  lua_pushlstring(L, dst,SHA256_DIGEST_LENGTH * 2);
+  return 1;
+}
+
+
+/**
+ * BLOWFISH加密
+ *
+ * LUA示例:
+ * local codec = require('codec')
+ * local src = 'something'
+ * local key = [[...]] --16位数字串
+ * local bs = codec.blowfish_encrypt(src, key, iv)
+ * local dst = codec.base64_encode(bs) --BASE64密文
+ */
+static int codec_blowfish_encrypt(lua_State *L){
+  size_t len;
+  const char *src = luaL_checklstring(L, 1, &len);
+  char *key = luaL_checkstring(L, 2);
+  char *iv = luaL_checkstring(L, 3);
+  
+  EVP_CIPHER_CTX ctx;
+  EVP_CIPHER_CTX_init(&ctx);
+  EVP_CIPHER_CTX_set_padding(&ctx,0);        // NOADDING
+  
+  int ret = EVP_EncryptInit_ex(&ctx, EVP_bf_cfb(), NULL, (unsigned char *)key,(unsigned char *)iv);
+  if(ret != 1)
+  {
+    EVP_CIPHER_CTX_cleanup(&ctx);
+    return luaL_error(L, "EVP encrypt init error");
+  }
+
+  int dstn = len + 128, n, wn;
+  char dst[dstn];
+  memset(dst, 0, dstn);
+
+  ret = EVP_EncryptUpdate(&ctx, (unsigned char *)dst, &wn, (unsigned char *)src, len);
+  if(ret != 1)
+  {
+    EVP_CIPHER_CTX_cleanup(&ctx);
+    return luaL_error(L, "EVP encrypt update error");
+  }
+  n = wn;
+
+  ret = EVP_EncryptFinal_ex(&ctx, (unsigned char *)(dst + n), &wn);
+  if(ret != 1)
+  {
+    EVP_CIPHER_CTX_cleanup(&ctx);
+    return luaL_error(L, "EVP encrypt final error");
+  }
+  EVP_CIPHER_CTX_cleanup(&ctx);
+  n += wn;
+
+  lua_pushlstring(L, dst, n);
+  return 1;
+}
+
+/**
+ * BLOWFISH解密
+ *
+ * LUA示例:
+ * local codec = require('codec')
+ * local src = [[...]] --BASE64密文
+ * local key = [[...]] --16位数字串
+ * local bs = codec.base64_decrypt(src)
+ * local dst = codec.aes_decrypt(bs, key)
+ */
+static int codec_blowfish_decrypt(lua_State *L)
+{
+  size_t len;
+  const char *src = luaL_checklstring(L, 1, &len);
+  char *key = luaL_checkstring(L, 2);
+
+  EVP_CIPHER_CTX ctx;
+  EVP_CIPHER_CTX_init(&ctx);
+
+  int ret = EVP_DecryptInit_ex(&ctx, EVP_aes_128_ecb(), NULL, (unsigned char *)key, NULL);
+  if(ret != 1)
+  {
+    EVP_CIPHER_CTX_cleanup(&ctx);
+    return luaL_error(L, "EVP decrypt init error");
+  }
+
+  int n, wn;
+  char dst[len];
+  memset(dst, 0, len);
+
+  ret = EVP_DecryptUpdate(&ctx, (unsigned char *)dst, &wn, (unsigned char *)src, len);
+  if(ret != 1)
+  {
+    EVP_CIPHER_CTX_cleanup(&ctx);
+    return luaL_error(L, "EVP decrypt update error");
+  }
+  n = wn;
+
+  ret = EVP_DecryptFinal_ex(&ctx, (unsigned char *)(dst + n), &wn);
+  if(ret != 1)
+  {
+    EVP_CIPHER_CTX_cleanup(&ctx);
+    return luaL_error(L, "EVP decrypt final error");
+  }
+  EVP_CIPHER_CTX_cleanup(&ctx);
+  n += wn;
+
+  lua_pushlstring(L, dst, n);
+  return 1;
+}
+
+
 static const struct luaL_Reg codec[] =
 {
   {"base64_encode", codec_base64_encode},
   {"base64_decode", codec_base64_decode},
   {"md5_encode", codec_md5_encode},
+  {"sha1_encode", codec_sha1_encode},
+  {"sha256_encode", codec_sha256_encode},
   {"hmac_sha1_encode", codec_hmac_sha1_encode},
   {"aes_encrypt", codec_aes_encrypt},
   {"aes_decrypt", codec_aes_decrypt},
@@ -455,6 +636,8 @@ static const struct luaL_Reg codec[] =
   {"rsa_public_verify", codec_rsa_public_verify},
   {"rsa_public_encrypt", codec_rsa_public_encrypt},
   {"rsa_private_decrypt", codec_rsa_private_decrypt},
+  {"blowfish_encrypt", codec_blowfish_encrypt},
+  {"blowfish_decrypt", codec_blowfish_decrypt},
   {NULL, NULL}
 };
 
