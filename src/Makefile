@@ -10,7 +10,7 @@ OBJS   = codec.o
 .PHONE: all clean dist test
 
 INSTALL ?= install
-DESTDIR ?= /usr/local/kong/lib/
+DESTDIR ?= /usr/local/lib/luarocks/rocks/kong/0.8.3-0/lib
 
 RM = rm -f
 # CC=gcc
