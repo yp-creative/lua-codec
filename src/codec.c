@@ -1,9 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <luajit-2.1/lua.h>
-#include <luajit-2.1/lauxlib.h>
-#include <luajit-2.1/lualib.h>
+#include <lua.h>
+#include <lauxlib.h>
+#include <lualib.h>
 #include <openssl/bio.h>
 #include <openssl/rsa.h>
 #include <openssl/pem.h>

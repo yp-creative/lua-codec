@@ -28,7 +28,7 @@ LUA_INCLUDE_DIR ?= $(PREFIX)/include/luajit-$(LUAJIT_VERSION)
 LUA_LIB_DIR     ?= $(PREFIX)/lib
 CFLAGS=-O0 -fPIC -Wall -I$(LUA_INCLUDE_DIR)
 
-LDFLAGS=-shared -lcrypto -lluajit-5.1 $(OMIT_FRAME_POINTER)
+LDFLAGS=-L$(LUA_LIB_DIR) -shared -lcrypto -lluajit-5.1 $(OMIT_FRAME_POINTER)
 
 ## Mac OS
 # LDFLAGS =-bundle -undefined dynamic_lookup -lmcrypt -lluajit
